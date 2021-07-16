@@ -23,6 +23,23 @@ let
               -i "$dev"/include/glib-2.0/gobject/gobjectnotifyqueue.c
           '';
         });
+        pcsclite = (static pkg.pcsclite).overrideAttrs (x: {
+          configureFlags = [
+            "--enable-confdir=/etc"
+            "--enable-usbdropdir=/var/lib/pcsc/drivers"
+            "--disable-libsystemd"
+            "--disable-libudev"
+            "--disable-libusb"
+          ];
+          buildInputs = [ pkgs.python3 pkgs.dbus ];
+        });
+        systemd = (static pkg.systemd).overrideAttrs (x: {
+          outputs = [ "out" "dev" ];
+          mesonFlags = x.mesonFlags ++ [
+            "-Dglib=false"
+            "-Dstatic-libsystemd=true"
+          ];
+        });
       };
     };
   });
@@ -45,13 +62,14 @@ let
     doCheck = false;
     enableParallelBuilding = true;
     outputs = [ "out" ];
-    nativeBuildInputs = [ bash gitMinimal go-md2man installShellFiles makeWrapper pkg-config which ];
-    buildInputs = [ glibc glibc.static gpgme libassuan libgpgerror libseccomp libapparmor libselinux glib ];
+    nativeBuildInputs = [ bash gitMinimal go-md2man pkg-config which ];
+    buildInputs = [ glibc glibc.static glib gpgme libassuan libgpgerror libseccomp libapparmor libselinux ];
     prePatch = ''
       export CFLAGS='-static -pthread'
       export LDFLAGS='-s -w -static-libgcc -static'
       export EXTRA_LDFLAGS='-s -w -linkmode external -extldflags "-static -lm"'
       export BUILDTAGS='static netgo osusergo exclude_graphdriver_btrfs exclude_graphdriver_devicemapper seccomp apparmor selinux'
+      export CGO_ENABLED=1
     '';
     buildPhase = ''
       patchShebangs .
