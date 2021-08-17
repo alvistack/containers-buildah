@@ -1,0 +1,26 @@
+#!/usr/bin/make -f
+
+SHELL := /bin/bash
+
+override_dh_auto_build:
+	mkdir -p bin
+	set -ex && \
+		export CGO_ENABLED=1 && \
+		go build \
+			-mod vendor -buildmode pie -v \
+			-ldflags "-s -w" \
+			-tags "netgo osusergo exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_openpgp seccomp apparmor" \
+			-o ./bin/buildah ./cmd/buildah
+
+override_dh_auto_install:
+	install -Dpm755 -d debian/tmp/usr/bin
+	install -Dpm755 -d debian/tmp/usr/share/bash-completion/completions
+	install -Dpm755 -t debian/tmp/usr/bin bin/buildah
+	install -Dpm644 -t debian/tmp/usr/share/bash-completion/completions contrib/completions/bash/buildah
+
+override_dh_auto_test:
+
+override_dh_auto_clean:
+
+%:
+	dh $@
