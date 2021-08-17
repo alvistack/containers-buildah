@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+
+override_dh_auto_build:
+	mkdir -p bin
+	PATH=/usr/lib/go-1.16/bin:/usr/lib/go-1.15/bin:/usr/lib/go-1.14/bin:/usr/lib/go-1.13/bin:${PATH} \
+	CGO_ENABLED=1 \
+		go build \
+			-mod vendor -buildmode pie -v \
+			-ldflags "-s -w" \
+			-tags "netgo osusergo exclude_graphdriver_devicemapper exclude_graphdriver_btrfs containers_image_openpgp seccomp apparmor" \
+			-o ./bin/buildah ./cmd/buildah
+
+override_dh_auto_install:
+	install -Dpm755 -d debian/tmp/usr/bin
+	install -Dpm755 -t debian/tmp/usr/bin bin/*
+
+override_dh_auto_test:
+
+override_dh_auto_clean:
+
+%:
+	dh $@
