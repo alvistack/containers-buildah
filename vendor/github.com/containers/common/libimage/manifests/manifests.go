@@ -18,6 +18,7 @@ import (
 	"github.com/containers/image/v5/transports/alltransports"
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage"
+	"github.com/containers/storage/pkg/lockfile"
 	digest "github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
@@ -25,6 +26,12 @@ import (
 )
 
 const instancesData = "instances.json"
+
+// LookupReferenceFunc return an image reference based on the specified one.
+// The returned reference can return custom ImageSource or ImageDestination
+// objects which intercept or filter blobs, manifests, and signatures as
+// they are read and written.
+type LookupReferenceFunc func(ref types.ImageReference) (types.ImageReference, error)
 
 // ErrListImageUnknown is returned when we attempt to create an image reference
 // for a List that has not yet been saved to an image.
@@ -56,6 +63,7 @@ type PushOptions struct {
 	SignBy             string                // fingerprint of GPG key to use to sign images
 	RemoveSignatures   bool                  // true to discard signatures in images
 	ManifestType       string                // the format to use when saving the list - possible options are oci, v2s1, and v2s2
+	SourceFilter       LookupReferenceFunc   // filter the list source
 }
 
 // Create creates a new list containing information about the specified image,
@@ -124,19 +132,19 @@ func (l *list) SaveToImage(store storage.Store, imageID string, names []string, 
 		if err != nil {
 			if created {
 				if _, err2 := store.DeleteImage(img.ID, true); err2 != nil {
-					logrus.Errorf("error deleting image %q after failing to save manifest for it", img.ID)
+					logrus.Errorf("Deleting image %q after failing to save manifest for it", img.ID)
 				}
 			}
-			return "", errors.Wrapf(err, "error saving manifest list to image %q", imageID)
+			return "", errors.Wrapf(err, "saving manifest list to image %q", imageID)
 		}
 		err = store.SetImageBigData(imageID, instancesData, instancesBytes, nil)
 		if err != nil {
 			if created {
 				if _, err2 := store.DeleteImage(img.ID, true); err2 != nil {
-					logrus.Errorf("error deleting image %q after failing to save instance locations for it", img.ID)
+					logrus.Errorf("Deleting image %q after failing to save instance locations for it", img.ID)
 				}
 			}
-			return "", errors.Wrapf(err, "error saving instance list to image %q", imageID)
+			return "", errors.Wrapf(err, "saving instance list to image %q", imageID)
 		}
 		return imageID, nil
 	}
@@ -199,7 +207,7 @@ func (l *list) Push(ctx context.Context, dest types.ImageReference, options Push
 	}
 	defer func() {
 		if err2 := policyContext.Destroy(); err2 != nil {
-			logrus.Errorf("error destroying signature policy context: %v", err2)
+			logrus.Errorf("Destroying signature policy context: %v", err2)
 		}
 	}()
 
@@ -219,6 +227,11 @@ func (l *list) Push(ctx context.Context, dest types.ImageReference, options Push
 	src, err := l.Reference(options.Store, options.ImageListSelection, options.Instances)
 	if err != nil {
 		return nil, "", err
+	}
+	if options.SourceFilter != nil {
+		if src, err = options.SourceFilter(src); err != nil {
+			return nil, "", err
+		}
 	}
 	copyOptions := &cp.Options{
 		ImageListSelection:    options.ImageListSelection,
@@ -352,9 +365,12 @@ func (l *list) Add(ctx context.Context, sys *types.SystemContext, ref types.Imag
 			}
 			if instanceInfo.OS == "" {
 				instanceInfo.OS = config.OS
+				instanceInfo.OSVersion = config.OSVersion
+				instanceInfo.OSFeatures = config.OSFeatures
 			}
 			if instanceInfo.Architecture == "" {
 				instanceInfo.Architecture = config.Architecture
+				instanceInfo.Variant = config.Variant
 			}
 		}
 		manifestBytes, manifestType, err := src.GetManifest(ctx, instanceInfo.instanceDigest)
@@ -394,4 +410,21 @@ func (l *list) Remove(instanceDigest digest.Digest) error {
 		}
 	}
 	return err
+}
+
+// LockerForImage returns a Locker for a given image record.  It's recommended
+// that processes which use LoadFromImage() to load a list from an image and
+// then use that list's SaveToImage() method to save a modified version of the
+// list to that image record use this lock to avoid accidentally wiping out
+// changes that another process is also attempting to make.
+func LockerForImage(store storage.Store, image string) (lockfile.Locker, error) {
+	img, err := store.Image(image)
+	if err != nil {
+		return nil, errors.Wrapf(err, "locating image %q for locating lock", image)
+	}
+	d := digest.NewDigestFromEncoded(digest.Canonical, img.ID)
+	if err := d.Validate(); err != nil {
+		return nil, errors.Wrapf(err, "coercing image ID for %q into a digest", image)
+	}
+	return store.GetDigestLock(d)
 }
