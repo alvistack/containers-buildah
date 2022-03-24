@@ -11,6 +11,7 @@ import (
 
 	"github.com/containers/common/pkg/apparmor"
 	"github.com/containers/common/pkg/cgroupv2"
+	"github.com/containers/common/pkg/util"
 	"github.com/containers/storage/pkg/homedir"
 	"github.com/containers/storage/pkg/unshare"
 	"github.com/containers/storage/types"
@@ -45,7 +46,7 @@ var (
 	// DefaultInitPath is the default path to the container-init binary
 	DefaultInitPath = "/usr/libexec/podman/catatonit"
 	// DefaultInfraImage to use for infra container
-	DefaultInfraImage = "k8s.gcr.io/pause:3.5"
+	DefaultInfraImage = ""
 	// DefaultRootlessSHMLockPath is the default path for rootless SHM locks
 	DefaultRootlessSHMLockPath = "/libpod_rootless_lock"
 	// DefaultDetachKeys is the default keys sequence for detaching a
@@ -76,16 +77,14 @@ var (
 		"CAP_SYS_CHROOT",
 	}
 
-	cniBinDir = []string{
+	// It may seem a bit unconventional, but it is necessary to do so
+	DefaultCNIPluginDirs = []string{
+		"/usr/local/libexec/cni",
 		"/usr/libexec/cni",
-		"/usr/lib/cni",
 		"/usr/local/lib/cni",
+		"/usr/lib/cni",
 		"/opt/cni/bin",
 	}
-
-	// DefaultRootlessNetwork is the kind of of rootless networking
-	// for containers
-	DefaultRootlessNetwork = "slirp4netns"
 )
 
 const (
@@ -95,18 +94,12 @@ const (
 	// InstallPrefix is the prefix where podman will be installed.
 	// It can be overridden at build time.
 	_installPrefix = "/usr"
-	// _cniConfigDir is the directory where cni configuration is found
-	_cniConfigDir = "/etc/cni/net.d/"
-	// _cniConfigDirRootless is the directory in XDG_CONFIG_HOME for cni plugins
-	_cniConfigDirRootless = "cni/net.d/"
 	// CgroupfsCgroupsManager represents cgroupfs native cgroup manager
 	CgroupfsCgroupsManager = "cgroupfs"
 	// DefaultApparmorProfile  specifies the default apparmor profile for the container.
 	DefaultApparmorProfile = apparmor.Profile
 	// SystemdCgroupsManager represents systemd native cgroup manager
 	SystemdCgroupsManager = "systemd"
-	// DefaultLogDriver is the default type of log files
-	DefaultLogDriver = "k8s-file"
 	// DefaultLogSizeMax is the default value for the maximum log size
 	// allowed for a container. Negative values mean that no limit is imposed.
 	DefaultLogSizeMax = -1
@@ -144,10 +137,6 @@ func DefaultConfig() (*Config, error) {
 		return nil, err
 	}
 
-	netns := "bridge"
-
-	cniConfig := _cniConfigDir
-
 	defaultEngineConfig.SignaturePolicyPath = DefaultSignaturePolicyPath
 	if unshare.IsRootless() {
 		configHome, err := homedir.GetConfigHome()
@@ -161,8 +150,6 @@ func DefaultConfig() (*Config, error) {
 				defaultEngineConfig.SignaturePolicyPath = DefaultSignaturePolicyPath
 			}
 		}
-		netns = "slirp4netns"
-		cniConfig = filepath.Join(configHome, _cniConfigDirRootless)
 	}
 
 	cgroupNS := "host"
@@ -190,34 +177,51 @@ func DefaultConfig() (*Config, error) {
 				"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 				"TERM=xterm",
 			},
-			EnvHost:            false,
-			HTTPProxy:          true,
-			Init:               false,
-			InitPath:           "",
-			IPCNS:              "private",
-			LogDriver:          DefaultLogDriver,
-			LogSizeMax:         DefaultLogSizeMax,
-			NetNS:              netns,
-			NoHosts:            false,
-			PidsLimit:          DefaultPidsLimit,
-			PidNS:              "private",
-			RootlessNetworking: DefaultRootlessNetwork,
-			SeccompProfile:     SeccompDefaultPath,
-			ShmSize:            DefaultShmSize,
-			TZ:                 "",
-			Umask:              "0022",
-			UTSNS:              "private",
-			UserNS:             "host",
-			UserNSSize:         DefaultUserNSSize,
+			EnvHost:    false,
+			HTTPProxy:  true,
+			Init:       false,
+			InitPath:   "",
+			IPCNS:      "private",
+			LogDriver:  defaultLogDriver(),
+			LogSizeMax: DefaultLogSizeMax,
+			NetNS:      "private",
+			NoHosts:    false,
+			PidsLimit:  DefaultPidsLimit,
+			PidNS:      "private",
+			ShmSize:    DefaultShmSize,
+			TZ:         "",
+			Umask:      "0022",
+			UTSNS:      "private",
+			UserNSSize: DefaultUserNSSize,
 		},
 		Network: NetworkConfig{
-			DefaultNetwork:   "podman",
-			DefaultSubnet:    DefaultSubnet,
-			NetworkConfigDir: cniConfig,
-			CNIPluginDirs:    cniBinDir,
+			DefaultNetwork: "podman",
+			DefaultSubnet:  DefaultSubnet,
+			CNIPluginDirs:  DefaultCNIPluginDirs,
 		},
-		Engine: *defaultEngineConfig,
+		Engine:  *defaultEngineConfig,
+		Secrets: defaultSecretConfig(),
+		Machine: defaultMachineConfig(),
 	}, nil
+}
+
+// defaultSecretConfig returns the default secret configuration.
+// Please note that the default is choosing the "file" driver.
+func defaultSecretConfig() SecretConfig {
+	return SecretConfig{
+		Driver: "file",
+	}
+}
+
+// defaultMachineConfig returns the default machine configuration.
+func defaultMachineConfig() MachineConfig {
+	return MachineConfig{
+		CPUs:     1,
+		DiskSize: 100,
+		Image:    getDefaultMachineImage(),
+		Memory:   2048,
+		User:     getDefaultMachineUser(),
+	}
 }
 
 // defaultConfigFromMemory returns a default engine configuration. Note that the
@@ -232,6 +236,8 @@ func defaultConfigFromMemory() (*EngineConfig, error) {
 
 	c.EventsLogFilePath = filepath.Join(c.TmpDir, "events", "events.log")
 
+	c.CompatAPIEnforceDockerHub = true
+
 	if path, ok := os.LookupEnv("CONTAINERS_STORAGE_CONF"); ok {
 		types.SetDefaultConfigFilePath(path)
 	}
@@ -244,9 +250,12 @@ func defaultConfigFromMemory() (*EngineConfig, error) {
 		logrus.Warnf("Storage configuration is unset - using hardcoded default graph root %q", _defaultGraphRoot)
 		storeOpts.GraphRoot = _defaultGraphRoot
 	}
+	c.graphRoot = storeOpts.GraphRoot
+	c.ImageCopyTmpDir = "/var/tmp"
 	c.StaticDir = filepath.Join(storeOpts.GraphRoot, "libpod")
 	c.VolumePath = filepath.Join(storeOpts.GraphRoot, "volumes")
 
+	c.HelperBinariesDir = defaultHelperBinariesDir
 	c.HooksDir = DefaultHooksDirs
 	c.ImageDefaultTransport = _defaultTransport
 	c.StateType = BoltDBStateStore
@@ -254,8 +263,11 @@ func defaultConfigFromMemory() (*EngineConfig, error) {
 	c.ImageBuildFormat = "oci"
 
 	c.CgroupManager = defaultCgroupManager()
+	c.ServiceTimeout = uint(5)
 	c.StopTimeout = uint(10)
-
+	c.NetworkCmdOptions = []string{
+		"enable_ipv6=true",
+	}
 	c.Remote = isRemote()
 	c.OCIRuntimes = map[string][]string{
 		"crun": {
@@ -296,6 +308,10 @@ func defaultConfigFromMemory() (*EngineConfig, error) {
 			"/sbin/runsc",
 			"/run/current-system/sw/bin/runsc",
 		},
+		"krun": {
+			"/usr/bin/krun",
+			"/usr/local/bin/krun",
+		},
 	}
 	// Needs to be called after populating c.OCIRuntimes
 	c.OCIRuntime = c.findRuntime()
@@ -319,9 +335,10 @@ func defaultConfigFromMemory() (*EngineConfig, error) {
 		"runc",
 		"kata",
 		"runsc",
+		"krun",
 	}
-	c.RuntimeSupportsNoCgroups = []string{"crun"}
-	c.RuntimeSupportsKVM = []string{"kata", "kata-runtime", "kata-qemu", "kata-fc"}
+	c.RuntimeSupportsNoCgroups = []string{"crun", "krun"}
+	c.RuntimeSupportsKVM = []string{"kata", "kata-runtime", "kata-qemu", "kata-fc", "krun"}
 	c.InitPath = DefaultInitPath
 	c.NoPivotRoot = false
 
@@ -335,6 +352,7 @@ func defaultConfigFromMemory() (*EngineConfig, error) {
 	// constants.
 	c.LockType = "shm"
 	c.MachineEnabled = false
+	c.ChownCopiedFiles = true
 
 	return c, nil
 }
@@ -344,7 +362,7 @@ func defaultTmpDir() (string, error) {
 		return "/run/libpod", nil
 	}
 
-	runtimeDir, err := getRuntimeDir()
+	runtimeDir, err := util.GetRuntimeDir()
 	if err != nil {
 		return "", err
 	}
@@ -543,12 +561,7 @@ func (c *Config) LogDriver() string {
 	return c.Containers.LogDriver
 }
 
+// MachineEnabled returns if podman is running inside a VM or not
 func (c *Config) MachineEnabled() bool {
 	return c.Engine.MachineEnabled
-}
-
-// RootlessNetworking returns the "kind" of networking
-// rootless containers should use
-func (c *Config) RootlessNetworking() string {
-	return c.Containers.RootlessNetworking
 }
