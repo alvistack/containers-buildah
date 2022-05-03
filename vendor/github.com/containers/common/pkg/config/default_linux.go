@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strconv"
 	"strings"
 
@@ -12,6 +13,17 @@ import (
 const (
 	oldMaxSize = uint64(1048576)
 )
+
+// getDefaultMachineImage returns the default machine image stream
+// On Linux/Mac, this returns the FCOS stream
+func getDefaultMachineImage() string {
+	return "testing"
+}
+
+// getDefaultMachineUser returns the user to use for rootless podman
+func getDefaultMachineUser() string {
+	return "core"
+}
 
 // getDefaultProcessLimits returns the nproc for the current process in ulimits format
 // Note that nfile sometimes cannot be set to unlimited, and the limit is hardcoded
@@ -36,4 +48,13 @@ func getDefaultProcessLimits() []string {
 		defaultLimits = append(defaultLimits, fmt.Sprintf("nproc=%d:%d", oldrlim.Cur, oldrlim.Max))
 	}
 	return defaultLimits
+}
+
+// getDefaultTmpDir for linux
+func getDefaultTmpDir() string {
+	// first check the TMPDIR env var
+	if path, found := os.LookupEnv("TMPDIR"); found {
+		return path
+	}
+	return "/var/tmp"
 }

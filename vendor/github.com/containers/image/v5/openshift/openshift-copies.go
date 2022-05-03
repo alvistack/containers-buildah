@@ -5,7 +5,6 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/url"
@@ -279,7 +278,7 @@ func getUserIdentificationPartialConfig(configAuthInfo clientcmdAuthInfo) (*rest
 }
 
 // ConfirmUsable is a modified copy of k8s.io/kubernetes/pkg/client/unversioned/clientcmd.DirectClientConfig.ConfirmUsable.
-// ConfirmUsable looks a particular context and determines if that particular part of the config is useable.  There might still be errors in the config,
+// ConfirmUsable looks a particular context and determines if that particular part of the config is usable.  There might still be errors in the config,
 // but no errors in the sections requested or referenced.  It does not return early so that it can find as many errors as possible.
 func (config *directClientConfig) ConfirmUsable() error {
 	var validationErrors []error
@@ -579,7 +578,7 @@ func (rules *clientConfigLoadingRules) Load() (*clientcmdConfig, error) {
 			continue
 		}
 		if err != nil {
-			errlist = append(errlist, errors.Wrapf(err, "Error loading config file \"%s\"", filename))
+			errlist = append(errlist, errors.Wrapf(err, "loading config file \"%s\"", filename))
 			continue
 		}
 
@@ -625,7 +624,7 @@ func (rules *clientConfigLoadingRules) Load() (*clientcmdConfig, error) {
 // loadFromFile is a modified copy of k8s.io/kubernetes/pkg/client/unversioned/clientcmd.LoadFromFile
 // LoadFromFile takes a filename and deserializes the contents into Config object
 func loadFromFile(filename string) (*clientcmdConfig, error) {
-	kubeconfigBytes, err := ioutil.ReadFile(filename)
+	kubeconfigBytes, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, err
 	}
@@ -1013,7 +1012,7 @@ func dataFromSliceOrFile(data []byte, file string) ([]byte, error) {
 		return data, nil
 	}
 	if len(file) > 0 {
-		fileData, err := ioutil.ReadFile(file)
+		fileData, err := os.ReadFile(file)
 		if err != nil {
 			return []byte{}, err
 		}

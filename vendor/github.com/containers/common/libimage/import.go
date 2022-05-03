@@ -2,9 +2,11 @@ package libimage
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 
+	"github.com/containers/common/pkg/download"
 	storageTransport "github.com/containers/image/v5/storage"
 	tarballTransport "github.com/containers/image/v5/tarball"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
@@ -23,6 +25,10 @@ type ImportOptions struct {
 	CommitMessage string
 	// Tag the imported image with this value.
 	Tag string
+	// Overwrite OS of imported image.
+	OS string
+	// Overwrite Arch of imported image.
+	Arch string
 }
 
 // Import imports a custom tarball at the specified path.  Returns the name of
@@ -43,19 +49,23 @@ func (r *Runtime) Import(ctx context.Context, path string, options *ImportOption
 		ic = config.ImageConfig
 	}
 
-	hist := []v1.History{
+	history := []v1.History{
 		{Comment: options.CommitMessage},
 	}
 
 	config := v1.Image{
-		Config:  ic,
-		History: hist,
+		Config:       ic,
+		History:      history,
+		OS:           options.OS,
+		Architecture: options.Arch,
+		Variant:      options.Variant,
 	}
 
 	u, err := url.ParseRequestURI(path)
 	if err == nil && u.Scheme != "" {
 		// If source is a URL, download the file.
-		file, err := r.downloadFromURL(path)
+		fmt.Printf("Downloading from %q\n", path)
+		file, err := download.FromURL(r.systemContext.BigFilesTemporaryDir, path)
 		if err != nil {
 			return "", err
 		}
@@ -80,16 +90,12 @@ func (r *Runtime) Import(ctx context.Context, path string, options *ImportOption
 		return "", err
 	}
 
-	name := options.Tag
-	if name == "" {
-		name, err = getImageDigest(ctx, srcRef, r.systemContextCopy())
-		if err != nil {
-			return "", err
-		}
-		name = "sha256:" + name[1:] // strip leading "@"
+	id, err := getImageID(ctx, srcRef, r.systemContextCopy())
+	if err != nil {
+		return "", err
 	}
 
-	destRef, err := storageTransport.Transport.ParseStoreReference(r.store, name)
+	destRef, err := storageTransport.Transport.ParseStoreReference(r.store, id)
 	if err != nil {
 		return "", err
 	}
@@ -104,5 +110,19 @@ func (r *Runtime) Import(ctx context.Context, path string, options *ImportOption
 		return "", err
 	}
 
-	return name, nil
+	// Strip the leading @ off the id.
+	name := id[1:]
+
+	// If requested, tag the imported image.
+	if options.Tag != "" {
+		image, _, err := r.LookupImage(name, nil)
+		if err != nil {
+			return "", errors.Wrap(err, "looking up imported image")
+		}
+		if err := image.Tag(options.Tag); err != nil {
+			return "", err
+		}
+	}
+
+	return "sha256:" + name, nil
 }
