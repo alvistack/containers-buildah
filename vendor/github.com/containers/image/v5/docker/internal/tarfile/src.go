@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"io/ioutil"
 	"os"
 	"path"
 	"sync"
@@ -80,7 +79,7 @@ func (s *Source) ensureCachedDataIsPresentPrivate() error {
 	}
 	var parsedConfig manifest.Schema2Image // There's a lot of info there, but we only really care about layer DiffIDs.
 	if err := json.Unmarshal(configBytes, &parsedConfig); err != nil {
-		return errors.Wrapf(err, "Error decoding tar config %s", tarManifest.Config)
+		return errors.Wrapf(err, "decoding tar config %s", tarManifest.Config)
 	}
 	if parsedConfig.RootFS == nil {
 		return errors.Errorf("Invalid image config (rootFS is not set): %s", tarManifest.Config)
@@ -164,15 +163,15 @@ func (s *Source) prepareLayerData(tarManifest *ManifestItem, parsedConfig *manif
 			// the slower method of checking if it's compressed.
 			uncompressedStream, isCompressed, err := compression.AutoDecompress(t)
 			if err != nil {
-				return nil, errors.Wrapf(err, "Error auto-decompressing %s to determine its size", layerPath)
+				return nil, errors.Wrapf(err, "auto-decompressing %s to determine its size", layerPath)
 			}
 			defer uncompressedStream.Close()
 
 			uncompressedSize := h.Size
 			if isCompressed {
-				uncompressedSize, err = io.Copy(ioutil.Discard, uncompressedStream)
+				uncompressedSize, err = io.Copy(io.Discard, uncompressedStream)
 				if err != nil {
-					return nil, errors.Wrapf(err, "Error reading %s to find its size", layerPath)
+					return nil, errors.Wrapf(err, "reading %s to find its size", layerPath)
 				}
 			}
 			li.size = uncompressedSize
@@ -263,7 +262,7 @@ func (s *Source) GetBlob(ctx context.Context, info types.BlobInfo, cache types.B
 	}
 
 	if info.Digest == s.configDigest { // FIXME? Implement a more general algorithm matching instead of assuming sha256.
-		return ioutil.NopCloser(bytes.NewReader(s.configBytes)), int64(len(s.configBytes)), nil
+		return io.NopCloser(bytes.NewReader(s.configBytes)), int64(len(s.configBytes)), nil
 	}
 
 	if li, ok := s.knownLayers[info.Digest]; ok { // diffID is a digest of the uncompressed tarball,
@@ -292,7 +291,7 @@ func (s *Source) GetBlob(ctx context.Context, info types.BlobInfo, cache types.B
 
 		uncompressedStream, _, err := compression.AutoDecompress(underlyingStream)
 		if err != nil {
-			return nil, 0, errors.Wrapf(err, "Error auto-decompressing blob %s", info.Digest)
+			return nil, 0, errors.Wrapf(err, "auto-decompressing blob %s", info.Digest)
 		}
 
 		newStream := uncompressedReadCloser{

@@ -2,7 +2,6 @@ package docker
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net/url"
 	"os"
 	"path"
@@ -82,7 +81,7 @@ func SignatureStorageBaseURL(sys *types.SystemContext, ref types.ImageReference,
 	} else {
 		// returns default directory if no sigstore specified in configuration file
 		url = builtinDefaultSignatureStorageDir(rootless.GetRootlessEUID())
-		logrus.Debugf(" No signature storage configuration found for %s, using built-in default %s", dr.PolicyConfigurationIdentity(), url.String())
+		logrus.Debugf(" No signature storage configuration found for %s, using built-in default %s", dr.PolicyConfigurationIdentity(), url.Redacted())
 	}
 	// NOTE: Keep this in sync with docs/signature-protocols.md!
 	// FIXME? Restrict to explicitly supported schemes?
@@ -146,7 +145,7 @@ func loadAndMergeConfig(dirPath string) (*registryConfiguration, error) {
 			continue
 		}
 		configPath := filepath.Join(dirPath, configName)
-		configBytes, err := ioutil.ReadFile(configPath)
+		configBytes, err := os.ReadFile(configPath)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +153,7 @@ func loadAndMergeConfig(dirPath string) (*registryConfiguration, error) {
 		var config registryConfiguration
 		err = yaml.Unmarshal(configBytes, &config)
 		if err != nil {
-			return nil, errors.Wrapf(err, "Error parsing %s", configPath)
+			return nil, errors.Wrapf(err, "parsing %s", configPath)
 		}
 
 		if config.DefaultDocker != nil {
