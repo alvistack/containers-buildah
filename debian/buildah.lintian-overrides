@@ -1,0 +1,5 @@
+buildah: copyright-without-copyright-notice
+buildah: initial-upload-closes-no-bugs
+buildah: no-manual-page
+buildah: statically-linked-binary
+buildah: zero-byte-file-in-doc-directory
