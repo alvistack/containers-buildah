@@ -2,6 +2,7 @@ package libimage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/containers/image/v5/types"
 	"github.com/containers/storage"
 	"github.com/opencontainers/go-digest"
-	"github.com/pkg/errors"
 )
 
 // NOTE: the abstractions and APIs here are a first step to further merge
@@ -78,7 +78,6 @@ func (r *Runtime) LookupManifestList(name string) (*ManifestList, error) {
 
 func (r *Runtime) lookupManifestList(name string) (*Image, manifests.List, error) {
 	lookupOptions := &LookupImageOptions{
-		IgnorePlatform: true,
 		lookupManifest: true,
 	}
 	image, _, err := r.LookupImage(name, lookupOptions)
@@ -146,7 +145,7 @@ func (m *ManifestList) LookupInstance(ctx context.Context, architecture, os, var
 		}
 	}
 
-	return nil, errors.Wrapf(storage.ErrImageUnknown, "could not find image instance %s of manifest list %s in local containers storage", instanceDigest, m.ID())
+	return nil, fmt.Errorf("could not find image instance %s of manifest list %s in local containers storage: %w", instanceDigest, m.ID(), storage.ErrImageUnknown)
 }
 
 // Saves the specified manifest list and reloads it from storage with the new ID.
@@ -162,6 +161,21 @@ func (m *ManifestList) saveAndReload() error {
 		return err
 	}
 	image, list, err := m.image.runtime.lookupManifestList(newID)
+	if err != nil {
+		return err
+	}
+	m.image = image
+	m.list = list
+	return nil
+}
+
+// Reload the image and list instances from storage
+func (m *ManifestList) reload() error {
+	listID := m.ID()
+	if err := m.image.reload(); err != nil {
+		return err
+	}
+	image, list, err := m.image.runtime.lookupManifestList(listID)
 	if err != nil {
 		return err
 	}
@@ -254,7 +268,17 @@ func (m *ManifestList) Add(ctx context.Context, name string, options *ManifestLi
 			Password: options.Password,
 		}
 	}
-
+	locker, err := manifests.LockerForImage(m.image.runtime.store, m.ID())
+	if err != nil {
+		return "", err
+	}
+	locker.Lock()
+	defer locker.Unlock()
+	// Make sure to reload the image from the containers storage to fetch
+	// the latest data (e.g., new or delete digests).
+	if err := m.reload(); err != nil {
+		return "", err
+	}
 	newDigest, err := m.list.Add(ctx, systemContext, ref, options.All)
 	if err != nil {
 		return "", err
@@ -374,7 +398,7 @@ func (m *ManifestList) Push(ctx context.Context, destination string, options *Ma
 	}
 
 	if m.image.runtime.eventChannel != nil {
-		m.image.runtime.writeEvent(&Event{ID: m.ID(), Name: destination, Time: time.Now(), Type: EventTypeImagePush})
+		defer m.image.runtime.writeEvent(&Event{ID: m.ID(), Name: destination, Time: time.Now(), Type: EventTypeImagePush})
 	}
 
 	// NOTE: we're using the logic in copier to create a proper

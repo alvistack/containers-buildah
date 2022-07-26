@@ -7,6 +7,14 @@ import (
 	selinux "github.com/opencontainers/selinux/go-selinux"
 )
 
+const (
+	// OverrideContainersConfig holds the default config path overridden by the root user
+	OverrideContainersConfig = "/etc/" + _configPath
+
+	// DefaultContainersConfig holds the default containers config path
+	DefaultContainersConfig = "/usr/share/" + _configPath
+)
+
 func selinuxEnabled() bool {
 	return selinux.GetEnabled()
 }
@@ -34,4 +42,11 @@ func ifRootlessConfigPath() (string, error) {
 		return path, nil
 	}
 	return "", nil
+}
+
+var defaultHelperBinariesDir = []string{
+	"/usr/local/libexec/podman",
+	"/usr/local/lib/podman",
+	"/usr/libexec/podman",
+	"/usr/lib/podman",
 }
