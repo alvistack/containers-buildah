@@ -1,0 +1,5 @@
+buildah (100:1.27.2-1) UNRELEASED; urgency=medium
+
+  * https://github.com/containers/buildah/releases/tag/v1.27.2
+
+ -- Wong Hoi Sing Edison <hswong3i@gmail.com>  Wed, 21 Sep 2022 07:34:58 +0800
