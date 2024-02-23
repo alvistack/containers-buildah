@@ -1,0 +1,6 @@
+*.substvars
+*debhelper*
+.debhelper
+buildah
+files
+tmp
