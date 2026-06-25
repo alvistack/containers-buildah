@@ -1,0 +1,5 @@
+buildah (100:1.44.0-1) UNRELEASED; urgency=medium
+
+  * https://github.com/podman-container-tools/buildah/releases/tag/v1.44.0
+
+ -- Wong Hoi Sing Edison <hswong3i@pantarei-design.com>  Thu, 25 Jun 2026 18:15:59 +0800
